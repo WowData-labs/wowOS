@@ -25,7 +25,7 @@ jobs:
         run: |
           sudo mkdir -p "$BUILD_DIR"
           sudo chown -R $USER:$USER "$BUILD_DIR"
-          cd ${{ github.workspace }} && sudo -E BUILD_DIR="$BUILD_DIR" ./scripts/build_image.sh
+          sudo -E BUILD_DIR="$BUILD_DIR" bash "${{ github.workspace }}/scripts/build_image.sh"
 
       - name: Fix build dir ownership
         run: sudo chown -R $USER:$USER ${{ github.workspace }}/build
