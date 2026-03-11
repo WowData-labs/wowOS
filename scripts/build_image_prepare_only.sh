@@ -25,8 +25,12 @@ if [ ! -f "$IMG_NAME" ]; then
       xz -d -c raspios-dl > "$IMG_NAME" && rm -f raspios-dl
     elif command -v file >/dev/null && file raspios-dl | grep -qi "gzip"; then
       gzip -d -c raspios-dl > "$IMG_NAME" && rm -f raspios-dl
-    else
+    elif command -v file >/dev/null && file raspios-dl | grep -qiE "DOS|MBR|data"; then
       mv raspios-dl "$IMG_NAME"
+    else
+      echo "[wowOS] Download did not return a valid image (got: $(file -b raspios-dl)). Place $IMG_NAME in $BUILD_DIR or run build locally."
+      rm -f raspios-dl
+      exit 1
     fi
   fi
   if [ ! -f "$IMG_NAME" ]; then
@@ -38,19 +42,29 @@ if command -v file >/dev/null && file "$IMG_NAME" | grep -qi "XZ compressed"; th
   echo "[wowOS] Decompressing xz to raw image..."
   xz -d -c "$IMG_NAME" > "${IMG_NAME}.tmp" && mv "${IMG_NAME}.tmp" "$IMG_NAME"
 fi
+# Ensure we have a real disk image (not HTML or tiny file)
+MIN_IMG_MB=200
+if [ ! -s "$IMG_NAME" ] || [ "$(stat -c%s "$IMG_NAME" 2>/dev/null || stat -f%z "$IMG_NAME" 2>/dev/null)" -lt $((MIN_IMG_MB * 1024 * 1024)) ]; then
+  echo "[wowOS] $IMG_NAME is missing or too small (need >= ${MIN_IMG_MB}MB). Place a valid raspios-lite arm64 image in $BUILD_DIR."
+  exit 1
+fi
 
 LOOP_DEV=$(losetup -f --show -P "$IMG_NAME" 2>/dev/null) || LOOP_DEV=$(losetup -f --show "$IMG_NAME")
 echo "[wowOS] Loop: $LOOP_DEV"
+if [ -z "$LOOP_DEV" ] || [ ! -b "$LOOP_DEV" ]; then
+  echo "[wowOS] Failed to attach loop device for $IMG_NAME (not a valid disk image?)."
+  exit 1
+fi
 mkdir -p /mnt/wowos
 if [ -b "${LOOP_DEV}p2" ]; then
-  mount "${LOOP_DEV}p2" /mnt/wowos
-  mount "${LOOP_DEV}p1" /mnt/wowos/boot
+  mount "${LOOP_DEV}p2" /mnt/wowos || { echo "[wowOS] Mount failed. Image may be wrong format or runner may not allow mount."; losetup -d "$LOOP_DEV" 2>/dev/null; exit 1; }
+  mount "${LOOP_DEV}p1" /mnt/wowos/boot || { umount /mnt/wowos 2>/dev/null; losetup -d "$LOOP_DEV" 2>/dev/null; exit 1; }
 else
-  kpartx -av "$LOOP_DEV"
+  kpartx -av "$LOOP_DEV" || { losetup -d "$LOOP_DEV" 2>/dev/null; exit 1; }
   MAPPER=$(basename "$LOOP_DEV")
   sleep 1
-  mount /dev/mapper/${MAPPER}p2 /mnt/wowos
-  mount /dev/mapper/${MAPPER}p1 /mnt/wowos/boot
+  mount /dev/mapper/${MAPPER}p2 /mnt/wowos || { kpartx -dv "$LOOP_DEV" 2>/dev/null; losetup -d "$LOOP_DEV" 2>/dev/null; exit 1; }
+  mount /dev/mapper/${MAPPER}p1 /mnt/wowos/boot || { umount /mnt/wowos 2>/dev/null; kpartx -dv "$LOOP_DEV" 2>/dev/null; losetup -d "$LOOP_DEV" 2>/dev/null; exit 1; }
 fi
 
 # Add wowos user inside image (write passwd/group directly)
