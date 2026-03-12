@@ -109,9 +109,11 @@ chmod +x /mnt/wowos/usr/local/bin/wowos-firstboot 2>/dev/null || true
 # Install desktop once on first boot (oneshot; enable via symlink, no chroot)
 cp "$PROJECT_ROOT/scripts/install_desktop_firstboot.sh" /mnt/wowos/usr/local/bin/wowos-install-desktop-firstboot 2>/dev/null || true
 chmod +x /mnt/wowos/usr/local/bin/wowos-install-desktop-firstboot 2>/dev/null || true
-cp "$PROJECT_ROOT/services/wowos-install-desktop-once.service" /mnt/wowos/etc/systemd/system/
-mkdir -p /mnt/wowos/etc/systemd/system/multi-user.target.wants
-ln -sf ../wowos-install-desktop-once.service /mnt/wowos/etc/systemd/system/multi-user.target.wants/wowos-install-desktop-once.service 2>/dev/null || true
+cp "$PROJECT_ROOT/services/wowos-install-desktop-once.service" /mnt/wowos/etc/systemd/system/ 2>/dev/null || true
+if [ -f /mnt/wowos/etc/systemd/system/wowos-install-desktop-once.service ]; then
+  mkdir -p /mnt/wowos/etc/systemd/system/multi-user.target.wants
+  ln -sf ../wowos-install-desktop-once.service /mnt/wowos/etc/systemd/system/multi-user.target.wants/wowos-install-desktop-once.service
+fi
 
 # Write first-boot install-deps script
 mkdir -p /mnt/wowos/root
