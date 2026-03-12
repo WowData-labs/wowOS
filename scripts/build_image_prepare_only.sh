@@ -21,8 +21,8 @@ ci_placeholder() {
   ( cd "$BUILD_DIR" && zip -q "wowos-${WOWOS_VERSION}.img.zip" README-CI.txt )
   exit 0
 }
-# Detect CI: workflow sets WOWOS_CI=1 (reliable under sudo); GITHUB_ACTIONS is runner default
-in_ci() { [ -n "${WOWOS_CI}${GITHUB_ACTIONS}" ]; }
+# Detect CI: only when explicitly WOWOS_CI=1 or GITHUB_ACTIONS set and not WOWOS_CI=0 (Docker build uses WOWOS_CI=0)
+in_ci() { [ "$WOWOS_CI" = "1" ] || { [ -n "$GITHUB_ACTIONS" ] && [ "$WOWOS_CI" != "0" ]; }; }
 
 BUILD_OK=0
 trap 'if [ "$BUILD_OK" != "1" ] && in_ci; then ci_placeholder; fi' EXIT
