@@ -24,16 +24,20 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Install dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y wget curl zip xz-utils file kpartx util-linux
-
-      - name: Build image (prepare-only)
+      - name: Build image (prepare-only, in Docker for loop/mount)
         run: |
           mkdir -p "$BUILD_DIR"
-          sudo -E BUILD_DIR="$BUILD_DIR" WOWOS_VERSION="$WOWOS_VERSION" WOWOS_CI=1 GITHUB_ACTIONS="$GITHUB_ACTIONS" \
-            bash "${{ github.workspace }}/scripts/build_image_prepare_only.sh"
+          docker run --rm --privileged \
+            -v "${{ github.workspace }}:/wowos:rw" \
+            -e BUILD_DIR=/wowos/build \
+            -e WOWOS_VERSION="$WOWOS_VERSION" \
+            -e WOWOS_CI=0 \
+            -w /wowos \
+            ubuntu:22.04 \
+            bash -c '
+              apt-get update -qq && apt-get install -y -qq wget curl zip xz-utils file kpartx util-linux
+              bash /wowos/scripts/build_image_prepare_only.sh
+            '
           sudo chown -R "$USER:$USER" "$BUILD_DIR"
 
       - name: Verify output
@@ -41,6 +45,12 @@ jobs:
           echo "=== build dir ==="
           ls -lah "$BUILD_DIR"
           test -f "$BUILD_DIR/wowos-${WOWOS_VERSION}.img.zip"
+          SIZE=$(stat -c%s "$BUILD_DIR/wowos-${WOWOS_VERSION}.img.zip" 2>/dev/null || stat -f%z "$BUILD_DIR/wowos-${WOWOS_VERSION}.img.zip")
+          if [ "$SIZE" -lt 1048576 ]; then
+            echo "::error::Image artifact is too small (${SIZE} bytes). Build failed or placeholder only. Build locally: sudo BUILD_DIR=$BUILD_DIR bash scripts/build_image_prepare_only.sh"
+            exit 1
+          fi
+          echo "Image size: $(( SIZE / 1024 / 1024 )) MB"
 
       - name: Upload image artifact
         uses: actions/upload-artifact@v4
