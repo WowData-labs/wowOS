@@ -1,4 +1,5 @@
 [Unit]
+# 方案2: 首启安装桌面，标记文件 .desktop_installed，脚本 /opt/wowos/scripts/install_desktop_once.sh
 Description=wowOS install desktop once on first boot
 After=network-online.target
 Wants=network-online.target

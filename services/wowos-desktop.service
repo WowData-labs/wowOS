@@ -1,4 +1,5 @@
 [Unit]
+# 方案2: 仅本地 Web Server，User=admin，WorkingDirectory=/opt/wowos
 Description=wowOS Desktop Web Server
 After=network.target wowos-api.service
 Wants=wowos-api.service
