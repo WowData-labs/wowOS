@@ -35,6 +35,13 @@ if command -v file >/dev/null && file "$IMG_NAME" | grep -qi "XZ compressed"; th
   xz -d -c "$IMG_NAME" > "${IMG_NAME}.tmp" && mv "${IMG_NAME}.tmp" "$IMG_NAME"
 fi
 
+# 1b. Expand image file so root partition can be resized (avoids "No space left on device" during apt install)
+IMG_SIZE_MB=$(($(stat -c%s "$IMG_NAME" 2>/dev/null || stat -f%z "$IMG_NAME") / 1024 / 1024))
+if [ "$IMG_SIZE_MB" -lt 5500 ]; then
+  echo "[wowOS] Expanding image to 6GB for desktop package install (current ${IMG_SIZE_MB}MB)"
+  truncate -s 6G "$IMG_NAME"
+fi
+
 # 2. Attach image to loop device and mount partitions (works with or without partition suffixes)
 LOOP_DEV=$(losetup -f --show -P "$IMG_NAME" 2>/dev/null) || LOOP_DEV=$(losetup -f --show "$IMG_NAME")
 echo "[wowOS] Loop device: $LOOP_DEV"
@@ -42,8 +49,21 @@ if [ -z "$LOOP_DEV" ] || [ ! -b "$LOOP_DEV" ]; then
   echo "[wowOS] Failed to attach loop device for $IMG_NAME (not a valid disk image?)."
   exit 1
 fi
+
+# 2a. Resize partition 2 to use full image and grow root filesystem (if we expanded the image)
+if [ "$IMG_SIZE_MB" -lt 5500 ]; then
+  echo "[wowOS] Resizing root partition and filesystem"
+  parted -s "$LOOP_DEV" resizepart 2 100% || true
+  partprobe "$LOOP_DEV" 2>/dev/null || true
+  if [ ! -b "${LOOP_DEV}p2" ]; then
+    kpartx -uv "$LOOP_DEV" 2>/dev/null || true
+  fi
+  sleep 1
+fi
+
 mkdir -p /mnt/wowos
 if [ -b "${LOOP_DEV}p2" ]; then
+  [ "$IMG_SIZE_MB" -lt 5500 ] && resize2fs "${LOOP_DEV}p2" 2>/dev/null || true
   mount "${LOOP_DEV}p2" /mnt/wowos
   mount "${LOOP_DEV}p1" /mnt/wowos/boot
 else
@@ -51,6 +71,7 @@ else
   kpartx -av "$LOOP_DEV"
   MAPPER=$(basename "$LOOP_DEV")
   sleep 1
+  [ "$IMG_SIZE_MB" -lt 5500 ] && resize2fs /dev/mapper/${MAPPER}p2 2>/dev/null || true
   mount /dev/mapper/${MAPPER}p2 /mnt/wowos
   mount /dev/mapper/${MAPPER}p1 /mnt/wowos/boot
 fi

@@ -41,6 +41,7 @@ jobs:
               set -e
               apt-get update -qq && apt-get install -y -qq \
                 wget curl zip xz-utils file kpartx util-linux \
+                parted e2fsprogs \
                 qemu-user-static binfmt-support
               update-binfmts --enable qemu-aarch64 || true
               BUILD_DIR=/wowos/build IMG_NAME=raspios-lite.img WOWOS_VERSION="$WOWOS_VERSION" \
