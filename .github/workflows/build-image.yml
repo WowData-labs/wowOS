@@ -24,7 +24,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Build image (prepare-only, in Docker for loop/mount)
+      - name: Build image (full build, in Docker for loop/mount)
         run: |
           mkdir -p "$BUILD_DIR"
           docker run --rm --privileged \
@@ -35,8 +35,10 @@ jobs:
             -w /wowos \
             ubuntu:22.04 \
             bash -c '
+              set -e
               apt-get update -qq && apt-get install -y -qq wget curl zip xz-utils file kpartx util-linux
-              bash /wowos/scripts/build_image_prepare_only.sh
+              BUILD_DIR=/wowos/build IMG_NAME=raspios-lite.img WOWOS_VERSION="$WOWOS_VERSION" \
+                bash /wowos/scripts/build_image.sh
             '
           sudo chown -R "$USER:$USER" "$BUILD_DIR"
 
@@ -46,8 +48,8 @@ jobs:
           ls -lah "$BUILD_DIR"
           test -f "$BUILD_DIR/wowos-${WOWOS_VERSION}.img.zip"
           SIZE=$(stat -c%s "$BUILD_DIR/wowos-${WOWOS_VERSION}.img.zip" 2>/dev/null || stat -f%z "$BUILD_DIR/wowos-${WOWOS_VERSION}.img.zip")
-          if [ "$SIZE" -lt 1048576 ]; then
-            echo "::error::Image artifact is too small (${SIZE} bytes). Build failed or placeholder only. Build locally: sudo BUILD_DIR=$BUILD_DIR bash scripts/build_image_prepare_only.sh"
+          if [ "$SIZE" < 1048576 ]; then
+            echo "::error::Image artifact is too small (${SIZE} bytes). Full build likely failed. Build locally: sudo BUILD_DIR=$BUILD_DIR bash scripts/build_image.sh"
             exit 1
           fi
           echo "Image size: $(( SIZE / 1024 / 1024 )) MB"

@@ -42,17 +42,23 @@ mkdir -p /mnt/wowos
 mount "${LOOP_DEV}p2" /mnt/wowos
 mount "${LOOP_DEV}p1" /mnt/wowos/boot
 
-# 3. chroot install deps
+# 3. chroot install base deps (Python + desktop + kiosk) so the image is self-contained
 mount --bind /dev /mnt/wowos/dev
 mount --bind /proc /mnt/wowos/proc
 mount --bind /sys /mnt/wowos/sys
 chroot /mnt/wowos apt-get update
-chroot /mnt/wowos apt-get install -y python3 python3-pip sqlite3
-chroot /mnt/wowos python3 -m pip install --break-system-packages flask pyjwt cryptography pyyaml requests
+chroot /mnt/wowos apt-get install -y \
+  python3 python3-pip python3-venv sqlite3 \
+  lightdm xserver-xorg xinit openbox \
+  chromium unclutter \
+  dbus-x11 x11-xserver-utils \
+  network-manager \
+  fonts-noto fonts-noto-cjk
 
-# 4. Create wowos user/group (API runs as this user)
+# 4. Create wowos service user/group (API runs as this user) and desktop user
 chroot /mnt/wowos groupadd -r wowos 2>/dev/null || true
 chroot /mnt/wowos useradd -r -s /bin/false -g wowos -d /var/lib/wowos wowos 2>/dev/null || true
+chroot /mnt/wowos id admin >/dev/null 2>&1 || chroot /mnt/wowos useradd -m -s /bin/bash admin
 
 # 5. Copy wowOS core and desktop UI
 mkdir -p /mnt/wowos/opt/wowos
@@ -62,11 +68,15 @@ cp -r "$PROJECT_ROOT/ui" /mnt/wowos/opt/wowos/ 2>/dev/null || true
 cp "$PROJECT_ROOT/requirements.txt" /mnt/wowos/opt/wowos/ 2>/dev/null || true
 chroot /mnt/wowos chown -R wowos:wowos /opt/wowos
 
+# 5b. Install Python dependencies from requirements.txt inside the image
+if [ -f "$PROJECT_ROOT/requirements.txt" ]; then
+  chroot /mnt/wowos python3 -m pip install --break-system-packages -r /opt/wowos/requirements.txt
+fi
+
 # 6. systemd services
 cp "$PROJECT_ROOT/services/wowos-api.service" /mnt/wowos/etc/systemd/system/
 cp "$PROJECT_ROOT/services/wowos-desktop.service" /mnt/wowos/etc/systemd/system/ 2>/dev/null || true
-chroot /mnt/wowos systemctl enable wowos-api.service
-chroot /mnt/wowos systemctl enable wowos-desktop.service 2>/dev/null || true
+cp "$PROJECT_ROOT/services/wowos-kiosk.service" /mnt/wowos/etc/systemd/system/
 
 # 7. Data and config dirs (owned by wowos; /data/files wowos-only, data access via API only)
 chroot /mnt/wowos mkdir -p /var/lib/wowos /data/files /data/apps
@@ -82,15 +92,37 @@ touch /mnt/wowos/boot/ssh
 cp "$PROJECT_ROOT/scripts/firstboot_wizard.sh" /mnt/wowos/usr/local/bin/wowos-firstboot 2>/dev/null || true
 chroot /mnt/wowos chmod +x /usr/local/bin/wowos-firstboot 2>/dev/null || true
 
-# 9b. 方案2：桌面与 kiosk — 脚本放到 /opt/wowos/scripts/
+# 9b. Desktop & kiosk: copy scripts and configure LightDM autologin + Openbox autostart
 mkdir -p /mnt/wowos/opt/wowos/scripts
-cp "$PROJECT_ROOT/scripts/install_desktop_once.sh" /mnt/wowos/opt/wowos/scripts/
 cp "$PROJECT_ROOT/scripts/start_kiosk.sh" /mnt/wowos/opt/wowos/scripts/
-chroot /mnt/wowos chmod +x /opt/wowos/scripts/install_desktop_once.sh /opt/wowos/scripts/start_kiosk.sh
-cp "$PROJECT_ROOT/services/wowos-install-desktop-once.service" /mnt/wowos/etc/systemd/system/
-cp "$PROJECT_ROOT/services/wowos-kiosk.service" /mnt/wowos/etc/systemd/system/
-chroot /mnt/wowos systemctl enable wowos-install-desktop-once.service
+chroot /mnt/wowos chmod +x /opt/wowos/scripts/start_kiosk.sh
+
+# LightDM autologin for admin, using Openbox session
+chroot /mnt/wowos mkdir -p /etc/lightdm/lightdm.conf.d
+cat > /mnt/wowos/etc/lightdm/lightdm.conf.d/50-wowos-autologin.conf << 'EOF'
+[Seat:*]
+autologin-user=admin
+autologin-user-timeout=0
+user-session=openbox
+EOF
+
+# Openbox autostart to launch kiosk after X session is ready
+mkdir -p /mnt/wowos/home/admin/.config/openbox
+cat > /mnt/wowos/home/admin/.config/openbox/autostart << 'EOF'
+xset -dpms
+xset s off
+xset s noblank
+unclutter -idle 0.5 -root >/dev/null 2>&1 &
+/opt/wowos/scripts/start_kiosk.sh &
+EOF
+chroot /mnt/wowos chown -R admin:admin /home/admin/.config
+
+# Enable services and graphical target inside the image
+chroot /mnt/wowos systemctl enable lightdm
+chroot /mnt/wowos systemctl enable wowos-api.service
+chroot /mnt/wowos systemctl enable wowos-desktop.service 2>/dev/null || true
 chroot /mnt/wowos systemctl enable wowos-kiosk.service
+chroot /mnt/wowos systemctl set-default graphical.target
 
 # 10. Unmount
 umount /mnt/wowos/dev /mnt/wowos/proc /mnt/wowos/sys

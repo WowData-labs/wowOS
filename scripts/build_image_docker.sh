@@ -50,12 +50,18 @@ docker run --rm --privileged \
     mount --bind /sys /mnt/wowos/sys
     cp /etc/resolv.conf /mnt/wowos/etc/resolv.conf
     chroot /mnt/wowos apt-get update -qq
-    chroot /mnt/wowos apt-get install -y -qq python3 python3-pip sqlite3
-    chroot /mnt/wowos python3 -m pip install --break-system-packages flask pyjwt cryptography pyyaml requests
+    chroot /mnt/wowos apt-get install -y -qq \
+      python3 python3-pip python3-venv sqlite3 \
+      lightdm xserver-xorg xinit openbox \
+      chromium unclutter \
+      dbus-x11 x11-xserver-utils \
+      network-manager \
+      fonts-noto fonts-noto-cjk
 
-    # 4. User
+    # 4. Users: wowos service user + desktop admin user
     chroot /mnt/wowos groupadd -r wowos 2>/dev/null || true
     chroot /mnt/wowos useradd -r -s /bin/false -g wowos -d /var/lib/wowos wowos 2>/dev/null || true
+    chroot /mnt/wowos id admin >/dev/null 2>&1 || chroot /mnt/wowos useradd -m -s /bin/bash admin
 
     # 5. Copy code
     mkdir -p /mnt/wowos/opt/wowos
@@ -65,9 +71,15 @@ docker run --rm --privileged \
     cp /wowos/requirements.txt /mnt/wowos/opt/wowos/ 2>/dev/null || true
     chroot /mnt/wowos chown -R wowos:wowos /opt/wowos
 
+    # 5b. Install Python deps from requirements.txt inside the image
+    if [ -f /wowos/requirements.txt ]; then
+      chroot /mnt/wowos python3 -m pip install --break-system-packages -r /opt/wowos/requirements.txt
+    fi
+
     # 6. systemd
     cp /wowos/services/wowos-api.service /mnt/wowos/etc/systemd/system/
     cp /wowos/services/wowos-desktop.service /mnt/wowos/etc/systemd/system/ 2>/dev/null || true
+    cp /wowos/services/wowos-kiosk.service /mnt/wowos/etc/systemd/system/
     chroot /mnt/wowos systemctl enable wowos-api.service
     chroot /mnt/wowos systemctl enable wowos-desktop.service 2>/dev/null || true
 
@@ -81,15 +93,35 @@ docker run --rm --privileged \
     # 8. SSH
     touch /mnt/wowos/boot/ssh
 
-    # 9b. 方案2：桌面与 kiosk — 脚本放到 /opt/wowos/scripts/
+    # 9b. Desktop & kiosk — scripts + LightDM autologin + Openbox autostart
     mkdir -p /mnt/wowos/opt/wowos/scripts
-    cp /wowos/scripts/install_desktop_once.sh /mnt/wowos/opt/wowos/scripts/
     cp /wowos/scripts/start_kiosk.sh /mnt/wowos/opt/wowos/scripts/
-    chroot /mnt/wowos chmod +x /opt/wowos/scripts/install_desktop_once.sh /opt/wowos/scripts/start_kiosk.sh
-    cp /wowos/services/wowos-install-desktop-once.service /mnt/wowos/etc/systemd/system/
-    cp /wowos/services/wowos-kiosk.service /mnt/wowos/etc/systemd/system/
-    chroot /mnt/wowos systemctl enable wowos-install-desktop-once.service
+    chroot /mnt/wowos chmod +x /opt/wowos/scripts/start_kiosk.sh
+
+    chroot /mnt/wowos mkdir -p /etc/lightdm/lightdm.conf.d
+    cat > /mnt/wowos/etc/lightdm/lightdm.conf.d/50-wowos-autologin.conf << "EOF"
+[Seat:*]
+autologin-user=admin
+autologin-user-timeout=0
+user-session=openbox
+EOF
+
+    mkdir -p /mnt/wowos/home/admin/.config/openbox
+    cat > /mnt/wowos/home/admin/.config/openbox/autostart << "EOF"
+xset -dpms
+xset s off
+xset s noblank
+unclutter -idle 0.5 -root >/dev/null 2>&1 &
+/opt/wowos/scripts/start_kiosk.sh &
+EOF
+    chroot /mnt/wowos chown -R admin:admin /home/admin/.config
+
+    # Enable services and graphical target
+    chroot /mnt/wowos systemctl enable lightdm
+    chroot /mnt/wowos systemctl enable wowos-api.service
+    chroot /mnt/wowos systemctl enable wowos-desktop.service 2>/dev/null || true
     chroot /mnt/wowos systemctl enable wowos-kiosk.service
+    chroot /mnt/wowos systemctl set-default graphical.target
 
     # 10. Unmount
     umount /mnt/wowos/dev /mnt/wowos/proc /mnt/wowos/sys

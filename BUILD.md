@@ -1,6 +1,6 @@
 # wowOS Image Build and Flash
 
-**Repo**: [https://github.com/feiyaozuo/wowOS](https://github.com/feiyaozuo/wowOS)
+**Repo**: [https://github.com/WowData-labs/wowOS](https://github.com/WowData-labs/wowOS)
 
 ## Push code to GitHub
 
@@ -12,7 +12,7 @@ git init
 git add .
 git commit -m "Initial commit: wowOS core, apps, build scripts"
 git branch -M main
-git remote add origin https://github.com/feiyaozuo/wowOS.git
+git remote add origin https://github.com/WowData-labs/wowOS.git
 git push -u origin main
 ```
 
@@ -20,35 +20,34 @@ After push, GitHub Actions builds the image on Linux; open **Actions**, pick the
 
 ## Requirements
 
-- **Full build (Python deps preinstalled in image)**: Must run on Linux (needs `losetup`, `mount`, `chroot`, and network inside chroot). Not supported on macOS.
-- **Prepare-only build (recommended on macOS / Docker without network)**: No chroot apt; only copies wowOS code and sets up user and systemd. After flash, run dependency install once on the Pi (see below). Can use Docker on macOS.
+- **Full build (recommended, all deps baked into image)**: Runs on Linux (native or inside Docker) with `losetup`, `mount`, `kpartx`, `zip`, and network access inside chroot.
+- **Prepare-only build (dev only, not for production)**: Legacy mode that does *not* install all deps into the image and expects extra steps on the Pi. Keep only for local experimentation.
 
 ## Build
 
-### Option 1: Full build (Linux, needs network)
+### Option 1: Full build on Linux host (all deps preinstalled)
 
 ```bash
 cd /path/to/wowOS
 sudo ./scripts/build_image.sh
 ```
 
-### Option 2: Prepare-only + Docker (including macOS)
+### Option 2: Full build via Docker (works well from macOS)
 
 ```bash
 cd /path/to/wowOS
-./scripts/build_image_docker_prepare_only.sh
+./scripts/build_image_docker.sh
 ```
 
 - Output: `build/wowos-1.0.img.zip`
-- After flash, on the Pi run once: `sudo /root/wowos-firstboot-install.sh` (installs Python deps and starts API)
-
-- First run downloads Raspberry Pi OS Lite (arm64) base image to `$BUILD_DIR` (default `/tmp/wowos-build`)
+- First run downloads Raspberry Pi OS Lite (arm64) base image to `$BUILD_DIR` (default `build/`)
 - Override with env: `BUILD_DIR`, `IMG_NAME`, `WOWOS_VERSION`
-- Result: `wowos-1.0.img.zip` (contains `.img`)
+- Result: `wowos-1.0.img.zip` (contains `.img` with Python + desktop deps + wowOS services preinstalled)
 
-### Option 3: Build on GitHub
+### Option 3: Build on GitHub (full build inside privileged Docker)
 
-Push to `main` or `master`, or trigger "Build wowOS Image" from the repo **Actions** page. Download `wowos-image` from the run’s **Artifacts** when done.
+Push to `main` or `master`, or trigger "Build wowOS Image" from the repo **Actions** page. Download `wowos-image` from the run’s **Artifacts** when done.  
+The GitHub workflow runs `scripts/build_image.sh` inside a privileged Docker container, so the downloaded image already includes all required Python and desktop dependencies.
 
 ## Flash to SD card
 
@@ -67,9 +66,19 @@ Push to `main` or `master`, or trigger "Build wowOS Image" from the repo **Actio
 - Check: `http://<Pi-IP>:8080/api/v1/health`; get token: `POST http://<IP>:8080/api/v1/tokens` (see DEV.md). Admin token is required in production (set via `wowos-firstboot`).
 - **Optional**: Run `sudo wowos-firstboot` to set device password (for key derivation); otherwise default derivation is used.
 
-## Included in image
+## Included in image (full build)
 
-- User `wowos` (API runs as this user)
+- Users:
+  - `wowos` (API runs as this service user)
+  - `admin` (desktop session user, used by LightDM autologin)
 - Dirs `/opt/wowos` (core), `/var/lib/wowos`, `/data` (data and audit)
-- systemd service `wowos-api.service` (enabled on boot)
+- All Python deps from `requirements.txt` preinstalled
+- Desktop stack preinstalled: `lightdm`, `xserver-xorg`, `xinit`, `openbox`, `chromium`, `unclutter`, `dbus-x11`, `x11-xserver-utils`, fonts, NetworkManager
+- systemd services enabled on boot:
+  - `wowos-api.service`
+  - `wowos-desktop.service`
+  - `wowos-kiosk.service`
+  - `lightdm` with graphical target as default
+- LightDM autologin for user `admin` into Openbox session
+- Openbox autostart launches wowOS kiosk (`start_kiosk.sh`)
 - SSH enabled (boot partition contains `ssh` file)
