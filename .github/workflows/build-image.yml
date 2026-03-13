@@ -36,7 +36,10 @@ jobs:
             ubuntu:22.04 \
             bash -c '
               set -e
-              apt-get update -qq && apt-get install -y -qq wget curl zip xz-utils file kpartx util-linux
+              # Tools: image handling + qemu-user-static so we can chroot into arm64 raspios
+              apt-get update -qq && apt-get install -y -qq \
+                wget curl zip xz-utils file kpartx util-linux \
+                qemu-user-static binfmt-support
               BUILD_DIR=/wowos/build IMG_NAME=raspios-lite.img WOWOS_VERSION="$WOWOS_VERSION" \
                 bash /wowos/scripts/build_image.sh
             '
