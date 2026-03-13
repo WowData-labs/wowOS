@@ -35,12 +35,25 @@ if command -v file >/dev/null && file "$IMG_NAME" | grep -qi "XZ compressed"; th
   xz -d -c "$IMG_NAME" > "${IMG_NAME}.tmp" && mv "${IMG_NAME}.tmp" "$IMG_NAME"
 fi
 
-# 2. Mount image (requires root)
-LOOP_DEV=$(losetup -f --show -P "$IMG_NAME")
+# 2. Attach image to loop device and mount partitions (works with or without partition suffixes)
+LOOP_DEV=$(losetup -f --show -P "$IMG_NAME" 2>/dev/null) || LOOP_DEV=$(losetup -f --show "$IMG_NAME")
 echo "[wowOS] Loop device: $LOOP_DEV"
+if [ -z "$LOOP_DEV" ] || [ ! -b "$LOOP_DEV" ]; then
+  echo "[wowOS] Failed to attach loop device for $IMG_NAME (not a valid disk image?)."
+  exit 1
+fi
 mkdir -p /mnt/wowos
-mount "${LOOP_DEV}p2" /mnt/wowos
-mount "${LOOP_DEV}p1" /mnt/wowos/boot
+if [ -b "${LOOP_DEV}p2" ]; then
+  mount "${LOOP_DEV}p2" /mnt/wowos
+  mount "${LOOP_DEV}p1" /mnt/wowos/boot
+else
+  # Fallback: use kpartx mapper devices (e.g. /dev/mapper/loop0p1)
+  kpartx -av "$LOOP_DEV"
+  MAPPER=$(basename "$LOOP_DEV")
+  sleep 1
+  mount /dev/mapper/${MAPPER}p2 /mnt/wowos
+  mount /dev/mapper/${MAPPER}p1 /mnt/wowos/boot
+fi
 
 # 3. chroot install base deps (Python + desktop + kiosk) so the image is self-contained
 mount --bind /dev /mnt/wowos/dev
@@ -124,10 +137,14 @@ chroot /mnt/wowos systemctl enable wowos-desktop.service 2>/dev/null || true
 chroot /mnt/wowos systemctl enable wowos-kiosk.service
 chroot /mnt/wowos systemctl set-default graphical.target
 
-# 10. Unmount
-umount /mnt/wowos/dev /mnt/wowos/proc /mnt/wowos/sys
+# 10. Unmount and detach loop device (handle both direct loop partitions and kpartx mappers)
 umount /mnt/wowos/boot /mnt/wowos
-losetup -d "$LOOP_DEV"
+if [ -b "${LOOP_DEV}p2" ]; then
+  losetup -d "$LOOP_DEV"
+else
+  kpartx -dv "$LOOP_DEV"
+  losetup -d "$LOOP_DEV"
+fi
 rmdir /mnt/wowos 2>/dev/null || true
 
 # 11. Zip

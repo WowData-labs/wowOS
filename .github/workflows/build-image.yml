@@ -48,7 +48,7 @@ jobs:
           ls -lah "$BUILD_DIR"
           test -f "$BUILD_DIR/wowos-${WOWOS_VERSION}.img.zip"
           SIZE=$(stat -c%s "$BUILD_DIR/wowos-${WOWOS_VERSION}.img.zip" 2>/dev/null || stat -f%z "$BUILD_DIR/wowos-${WOWOS_VERSION}.img.zip")
-          if [ "$SIZE" < 1048576 ]; then
+          if [ "$SIZE" -lt 1048576 ]; then
             echo "::error::Image artifact is too small (${SIZE} bytes). Full build likely failed. Build locally: sudo BUILD_DIR=$BUILD_DIR bash scripts/build_image.sh"
             exit 1
           fi
