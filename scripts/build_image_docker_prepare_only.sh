@@ -67,9 +67,13 @@ docker run --rm --privileged \
     mkdir -p /mnt/wowos/etc/systemd/system/multi-user.target.wants
     ln -sf ../wowos-desktop.service /mnt/wowos/etc/systemd/system/multi-user.target.wants/wowos-desktop.service 2>/dev/null || true
     touch /mnt/wowos/boot/ssh
+    mkdir -p /mnt/wowos/usr/local/bin
     cp /wowos/scripts/firstboot_wizard.sh /mnt/wowos/usr/local/bin/wowos-firstboot 2>/dev/null || true
     chmod +x /mnt/wowos/usr/local/bin/wowos-firstboot 2>/dev/null || true
-    cp /wowos/scripts/install_desktop_firstboot.sh /mnt/wowos/usr/local/bin/wowos-install-desktop-firstboot 2>/dev/null || true
+    cp /wowos/scripts/install_desktop_firstboot.sh /mnt/wowos/usr/local/bin/wowos-install-desktop-firstboot
+    if [ ! -f /mnt/wowos/usr/local/bin/wowos-install-desktop-firstboot ] || [ ! -s /mnt/wowos/usr/local/bin/wowos-install-desktop-firstboot ]; then
+      echo "[wowOS] WARN: install_desktop_firstboot.sh not copied." >&2
+    fi
     chmod +x /mnt/wowos/usr/local/bin/wowos-install-desktop-firstboot 2>/dev/null || true
     cp /wowos/services/wowos-install-desktop-once.service /mnt/wowos/etc/systemd/system/
     mkdir -p /mnt/wowos/etc/systemd/system/multi-user.target.wants
