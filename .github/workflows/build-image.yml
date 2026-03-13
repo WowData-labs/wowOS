@@ -43,6 +43,8 @@ jobs:
                 wget curl zip xz-utils file kpartx util-linux \
                 parted e2fsprogs \
                 qemu-user-static binfmt-support
+              echo "[DEBUG] resize2fs: $(resize2fs -V 2>&1 | head -1)"
+              echo "[DEBUG] losetup: $(losetup --version 2>&1 | head -1)"
               update-binfmts --enable qemu-aarch64 || true
               BUILD_DIR=/wowos/build IMG_NAME=raspios-lite.img WOWOS_VERSION="$WOWOS_VERSION" \
                 bash /wowos/scripts/build_image.sh

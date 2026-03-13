@@ -83,13 +83,13 @@ if [ -b "${LOOP_DEV}p2" ]; then
   mount "${LOOP_DEV}p1" /mnt/wowos/boot
 else
   # Fallback: use kpartx mapper devices (e.g. /dev/mapper/loop0p1)
+  echo "[WARNING] losetup -P not available, using kpartx as fallback"
   kpartx -av "$LOOP_DEV"
   MAPPER=$(basename "$LOOP_DEV")
   sleep 2
-  if [ "$NEED_RESIZE" = "1" ]; then
-    echo "[wowOS] Growing root filesystem (mapper)"
-    resize2fs /dev/mapper/${MAPPER}p2
-  fi
+  # Skip resize2fs on kpartx devices - incompatible with ext4 features
+  # Image already expanded via truncate, partition table already resized by parted
+  echo "[wowOS] Skipping resize2fs on kpartx device (known incompatibility with ext4)"
   mount /dev/mapper/${MAPPER}p2 /mnt/wowos
   mount /dev/mapper/${MAPPER}p1 /mnt/wowos/boot
 fi
