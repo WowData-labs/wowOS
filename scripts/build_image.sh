@@ -55,6 +55,12 @@ else
   mount /dev/mapper/${MAPPER}p1 /mnt/wowos/boot
 fi
 
+# 2b. When building on x86_64 (e.g. CI), copy qemu into chroot so arm64 binaries run via emulation
+if [ -f /usr/bin/qemu-aarch64-static ]; then
+  cp /usr/bin/qemu-aarch64-static /mnt/wowos/usr/bin/
+  chmod 755 /mnt/wowos/usr/bin/qemu-aarch64-static
+fi
+
 # 3. chroot install base deps (Python + desktop + kiosk) so the image is self-contained
 mount --bind /dev /mnt/wowos/dev
 mount --bind /proc /mnt/wowos/proc
