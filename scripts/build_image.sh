@@ -127,6 +127,8 @@ else
   sleep 2
   if [ "$NEED_RESIZE" = "1" ]; then
     echo "[wowOS] Growing root filesystem (/dev/mapper/${MAPPER}p2)"
+    # Attempt resize2fs; it may fail on some kpartx setups but is safe to try since
+    # the partition table has already been updated by parted/sgdisk above.
     if resize2fs "/dev/mapper/${MAPPER}p2"; then
       echo "[wowOS] resize2fs succeeded"
     else
