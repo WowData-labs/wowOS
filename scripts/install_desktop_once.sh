@@ -28,7 +28,10 @@ apt-get install -y \
   xinit \
   openbox \
   chromium \
-  unclutter
+  unclutter \
+  fonts-wqy-microhei
+apt-get clean
+rm -rf /var/lib/apt/lists/*
 
 echo "[4/7] ensure graphical target"
 systemctl set-default graphical.target

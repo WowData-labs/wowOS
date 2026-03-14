@@ -182,7 +182,9 @@ chroot /mnt/wowos apt-get install -y \
   chromium unclutter \
   dbus-x11 x11-xserver-utils \
   network-manager \
-  fonts-noto fonts-noto-cjk
+  fonts-wqy-microhei
+chroot /mnt/wowos apt-get clean
+chroot /mnt/wowos rm -rf /var/lib/apt/lists/*
 
 # 4. Create wowos service user/group (API runs as this user) and desktop user
 chroot /mnt/wowos groupadd -r wowos 2>/dev/null || true
