@@ -219,6 +219,22 @@ chroot /mnt/wowos chmod 751 /data/apps
 # 8. Enable SSH (headless after flash; Raspberry Pi OS enables SSH when boot partition has 'ssh' file)
 touch /mnt/wowos/boot/ssh
 
+# 8b. Verify critical boot files are present (missing files mean the Pi won't recognise the card)
+echo "[wowOS] Verifying boot partition files..."
+BOOT_OK=1
+for BOOTFILE in config.txt cmdline.txt; do
+  if [ ! -f "/mnt/wowos/boot/$BOOTFILE" ]; then
+    echo "[wowOS] ERROR: Required boot file missing: /boot/$BOOTFILE"
+    BOOT_OK=0
+  fi
+done
+if [ "$BOOT_OK" = "0" ]; then
+  echo "[wowOS] The boot partition is incomplete. The base image download may be corrupted."
+  echo "[wowOS] Delete $IMG_NAME and re-run to download a fresh copy."
+  exit 1
+fi
+echo "[wowOS] Boot partition OK: config.txt and cmdline.txt present."
+
 # 9. First-boot script (run wowos-firstboot after login to set device password)
 cp "$PROJECT_ROOT/scripts/firstboot_wizard.sh" /mnt/wowos/usr/local/bin/wowos-firstboot 2>/dev/null || true
 chroot /mnt/wowos chmod +x /usr/local/bin/wowos-firstboot 2>/dev/null || true
@@ -260,12 +276,54 @@ umount /mnt/wowos/var/cache/apt/archives 2>/dev/null || true
 rm -rf "${BUILD_DIR}/.apt-cache" 2>/dev/null || true
 umount /mnt/wowos/dev /mnt/wowos/proc /mnt/wowos/sys 2>/dev/null || true
 umount /mnt/wowos/boot /mnt/wowos
+
+# 10b. Shrink root filesystem and image to minimum size so the image fits on standard SD cards.
+#      On first boot Raspberry Pi OS automatically expands the root partition to fill the card.
+if [ -b "${LOOP_DEV}p2" ]; then
+  ROOT_PART="${LOOP_DEV}p2"
+else
+  ROOT_PART="/dev/mapper/$(basename "$LOOP_DEV")p2"
+fi
+echo "[wowOS] Shrinking root filesystem to minimum (image will auto-expand on first boot)..."
+e2fsck -f -y "$ROOT_PART" || true
+resize2fs -M "$ROOT_PART"
+
+# Calculate new partition end: partition-2 start + shrunken fs size + 64 MB padding
+FS_BLOCK_COUNT=$(tune2fs -l "$ROOT_PART" 2>/dev/null | awk '/^Block count:/{print $3}')
+FS_BLOCK_SIZE=$(tune2fs -l "$ROOT_PART" 2>/dev/null | awk '/^Block size:/{print $3}')
+PART2_START_SECTORS=$(parted -s "$LOOP_DEV" unit s print 2>/dev/null | awk '/^ *2 /{gsub(/s/,"",$2); print $2}')
+SECTOR_SIZE=512
+PART2_START_BYTES=$(( PART2_START_SECTORS * SECTOR_SIZE ))
+FS_BYTES=$(( FS_BLOCK_COUNT * FS_BLOCK_SIZE ))
+NEW_END_BYTES=$(( PART2_START_BYTES + FS_BYTES + 64 * 1024 * 1024 ))
+NEW_END_MiB=$(( NEW_END_BYTES / 1024 / 1024 + 2 ))  # +2 MiB for partition alignment
+echo "[wowOS] Shrinking partition 2 end to ${NEW_END_MiB}MiB..."
+parted -s "$LOOP_DEV" resizepart 2 ${NEW_END_MiB}MiB || true
+
 if [ -b "${LOOP_DEV}p2" ]; then
   losetup -d "$LOOP_DEV"
 else
   kpartx -dv "$LOOP_DEV"
   losetup -d "$LOOP_DEV"
 fi
+
+# Truncate the image file to remove all unused space (+4 MiB trailing buffer for firmware safety margin)
+NEW_IMG_BYTES=$(( (NEW_END_MiB + 4) * 1024 * 1024 ))
+truncate -s "$NEW_IMG_BYTES" "$IMG_NAME"
+echo "[wowOS] Final image size: $(du -sh "$IMG_NAME" | cut -f1)"
+
+# Fix partition table after truncation to prevent "no valid partition table" errors on Pi firmware.
+# For MBR images: parted rewrites the table cleanly; for GPT images: sgdisk relocates the backup header.
+LOOP_FINAL=$(losetup -f --show -P "$IMG_NAME" 2>/dev/null) || LOOP_FINAL=$(losetup -f --show "$IMG_NAME")
+if [ -n "$LOOP_FINAL" ]; then
+  partprobe "$LOOP_FINAL" 2>/dev/null || true
+  if command -v sgdisk >/dev/null 2>&1; then
+    sgdisk -e "$LOOP_FINAL" 2>/dev/null || true   # relocate GPT backup header to end of image
+  fi
+  parted -s "$LOOP_FINAL" print 2>/dev/null || true  # rewrite MBR/GPT cleanly
+  losetup -d "$LOOP_FINAL" 2>/dev/null || true
+fi
+
 rmdir /mnt/wowos 2>/dev/null || true
 
 # 11. Zip
